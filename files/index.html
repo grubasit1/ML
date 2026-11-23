@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Awake or Asleep Detector</title>
+<style>
+  body { font-family: Arial, sans-serif; text-align: center; background: #111; color: #eee; margin: 0; padding: 20px; }
+  button { font-size: 18px; padding: 10px 24px; border: 0; border-radius: 8px; background: #4caf50; color: #fff; cursor: pointer; }
+  #webcam-container { margin: 20px auto; }
+  #status { font-size: 48px; font-weight: bold; margin: 20px 0; min-height: 60px; }
+  #label-container div { font-size: 18px; margin: 4px; }
+</style>
+</head>
+<body>
+  <h1>Awake or Asleep Detector</h1>
+  <p>Trained with Teachable Machine</p>
+  <button type="button" onclick="init()">Start</button>
+  <div id="webcam-container"></div>
+  <div id="status"></div>
+  <div id="label-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.4/dist/teachablemachine-image.min.js"></script>
+  <script type="text/javascript">
+    // The model files (model.json, metadata.json, weights.bin) go in the "my_model" folder.
+    // To use an online Teachable Machine link instead, replace this with your link,
+    // for example "https://teachablemachine.withgoogle.com/models/AbC123xyz/"
+    const URL = "./my_model/";
+
+    let model, webcam, labelContainer, maxPredictions;
+    let audioCtx, lastBeep = 0;
+
+    // Plays a short beep sound
+    function beep() {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.3;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    }
+
+    async function init() {
+      // Audio must be started from a button click, so we do it here
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+
+      const flip = true;
+      webcam = new tmImage.Webcam(300, 300, flip);
+      await webcam.setup();
+      await webcam.play();
+      window.requestAnimationFrame(loop);
+
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      labelContainer = document.getElementById("label-container");
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.appendChild(document.createElement("div"));
+      }
+    }
+
+    async function loop() {
+      webcam.update();
+      await predict();
+      window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      let best = prediction[0];
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.childNodes[i].innerHTML =
+          prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(0) + "%";
+        if (prediction[i].probability > best.probability) best = prediction[i];
+      }
+      const status = document.getElementById("status");
+      status.innerHTML = best.className.toUpperCase();
+      const asleep = best.className.toLowerCase().includes("sleep");
+      status.style.color = asleep ? "#64b5f6" : "#81c784";
+
+      // Beep once per second while the model is at least 80% sure you are asleep
+      if (asleep && best.probability > 0.8 && Date.now() - lastBeep > 1000) {
+        beep();
+        lastBeep = Date.now();
+      }
+    }
+  </script>
+</body>
+</html>
